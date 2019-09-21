@@ -18,23 +18,21 @@ int lineNumber = 0;
 
 
 
-#define  LIST_SIZE 512
-#define BUFFER_SIZE 1000000
+#define BUFFER_SIZE 100000
 
-int listSize = 2;
+int listSize = 512;
 
 const int BASE = 100000;
 struct Line** lines;
 char str_buffer[BUFFER_SIZE];
-short read_buffer_index = 0;
-bool foundLine = 0;
+unsigned int read_buffer_index = 0;
 
 void strcopy(char* dest, char* src, int len) {
     memmove(dest, src, len );
     dest[len] = '\0';
 }
 
-char tolower(char ch) {
+char tolower2(char ch) {
     char result = ch;
     if (ch >= 'A' && ch <= 'Z') {
         result = 'a' + ch - 'A';
@@ -42,35 +40,31 @@ char tolower(char ch) {
     return result;
 }
 
-bool readline(int fd, char* str, int* len) {
+bool readline( char* str, int* len) {
     int curr = read_buffer_index;
+    bool foundLine = 0;
+
     for (; read_buffer_index < BUFFER_SIZE; read_buffer_index++) {
         char val = str_buffer[read_buffer_index];
-        if (val == '\n') {
+        if (val == '\n' || val == '\0' || val == '\r') {
+            if ((read_buffer_index - curr) <= 1) {
+                curr = read_buffer_index;
+                continue;
+            }
             read_buffer_index ++;
             foundLine = 1;
             break;
         }
-        else if (val == '\0' || val == '\r') {
-            foundLine = 0;
-            strcopy(str, str_buffer + curr, read_buffer_index - curr );
-            *len = read_buffer_index - curr;
-            break;
-        }
     }
-    if (read_buffer_index == BUFFER_SIZE - 1) {
+
+    if (read_buffer_index >= BUFFER_SIZE) {
         foundLine = 0;
     }
 
     if (foundLine) {
         strcopy(str, str_buffer + curr, read_buffer_index - curr);
         *len = read_buffer_index - curr;
-        if (*len == 1 &&
-            (strcmp(str, "\r") == 0 ||
-             strcmp(str, "\t") == 0 ||
-             strcmp(str, "\n") == 0)) {
-            foundLine = 0;
-        }
+        return foundLine;
     }
 
     return foundLine;
@@ -82,7 +76,7 @@ int hashCode(char* str) {
     int hash = 0;
     int i;
     for (i = 0; i < len; ++i) {
-        hash = (power * hash + tolower(str[i])) % BASE;
+        hash = (power * hash + tolower2(str[i])) % BASE;
     }
     return hash % 512;
 }
@@ -94,6 +88,7 @@ Line* createLine( char* str, int len) {
     line->hashCode = hashCode(str);
     memmove(line->str, str, len);
     line->str[len] = '\0';
+
     return line;
 }
 
@@ -105,8 +100,8 @@ bool compare(Line* l1, Line* l2) {
     if (len1 == len2 && l1->hashCode == l2->hashCode) {
         int i = 0;
         for (; i < len1; i++) {
-            char ch1 = ignoreCase > 0 ? tolower(l1->str[i]) : l1->str[i];
-            char ch2 = ignoreCase > 0 ? tolower(l2->str[i]) : l2->str[i];
+            char ch1 = ignoreCase > 0 ? tolower2(l1->str[i]) : l1->str[i];
+            char ch2 = ignoreCase > 0 ? tolower2(l2->str[i]) : l2->str[i];
 
             if (ch1 != ch2) {
                 equal = 0;
@@ -139,8 +134,18 @@ void insert(Line* newLine) {
         memmove(newLines, lines, oldSize * sizeof(Line));
         free(lines);
         lines = newLines;
+        int i;
+        for (i = lineNumber; i < listSize; i++) {
+            lines[i] = 0;
+        }
     }
-    lines[lineNumber++] = newLine;
+    if (newLine->count == 1 &&
+        (strcmp(newLine->str, "\r") != 0 &&
+         strcmp(newLine->str, "\t") != 0 &&
+         strcmp(newLine->str, "\n") != 0)) {
+        lines[lineNumber++] = newLine;
+    }
+
 }
 
 void deleteLine(Line* line) {
@@ -152,6 +157,7 @@ void deleteLine(Line* line) {
 void printLines() {
     int i = 0;
     for (; i < listSize; i++) {
+        if (lines[i] == 0) break;
         if ((PARAM_MASK & _C) > 0) {
             printf(1, "%d %s ", lines[i]->count, lines[i]->str);
         } else if (((PARAM_MASK & _D) > 0)) {
@@ -171,7 +177,7 @@ uniq(int fd) {
     char* buffer = malloc(BUFFER_SIZE);
     if ((r = read(fd, str_buffer, sizeof(str_buffer))) > 0) {
         int len = 0;
-        while (readline(fd, buffer, &len)) {
+        while (readline(buffer, &len)) {
             Line* line = createLine(buffer, len);
             if (contains(line)) {
                 deleteLine(line);
@@ -179,31 +185,39 @@ uniq(int fd) {
                 insert(line);
             }
         }
+        printLines();
     }
+
     free(buffer);
+
 }
 
 
 void destroy() {
     int i;
     for (i = 0; i < listSize; i++) {
-        deleteLine(lines[i]);
+        if (lines[i] > 0) {
+            deleteLine(lines[i]);
+        }
     }
     free(lines);
 }
 
 void initialize() {
     lines = (Line**)malloc(listSize * sizeof(Line));
+    int i;
+    for (i = 0; i < listSize; i++) {
+        lines[i] = 0;
+    }
 }
 
 int
 main(int argc, char *argv[]) {
+    initialize();
 
     if(argc <= 1){
         uniq(0);
     }
-
-    initialize();
 
     int i, fd = 0;
     for (i = 1; i < argc; i++) {
@@ -232,8 +246,8 @@ main(int argc, char *argv[]) {
 
         }
     }
-
     destroy();
+    exit();
 }
 
 #endif
